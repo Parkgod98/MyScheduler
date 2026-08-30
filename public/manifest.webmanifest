@@ -1,0 +1,9 @@
+{
+  "name": "MyScheduler",
+  "short_name": "Scheduler",
+  "description": "개인 일정 관리 PWA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f7f8fa",
+  "theme_color": "#111827"
+}
