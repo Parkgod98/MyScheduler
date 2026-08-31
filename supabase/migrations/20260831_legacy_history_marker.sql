@@ -1,0 +1,4 @@
+-- Compatibility marker for an existing remote migration history entry.
+-- The remote database already records version 20260831 as applied from an earlier manual/CLI run.
+-- Keep this file empty so Supabase CLI can reconcile local and remote migration history
+-- without changing the production schema.
