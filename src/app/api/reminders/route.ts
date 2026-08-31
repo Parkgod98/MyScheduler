@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 
+const REMINDER_LOOKBACK_MS = 2 * 60_000;
+
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
   if (!cronSecret || request.headers.get("authorization") !== `Bearer ${cronSecret}`) {
@@ -20,7 +22,7 @@ export async function POST(request: NextRequest) {
   webpush.setVapidDetails(subject, publicKey, privateKey);
   const supabase = createClient(url, serviceRole, { auth: { persistSession: false } });
   const now = new Date();
-  const windowEnd = new Date(now.getTime() + 60_000);
+  const reminderWindowStart = new Date(now.getTime() - REMINDER_LOOKBACK_MS);
 
   const { data: events, error } = await supabase
     .from("events")
@@ -32,7 +34,7 @@ export async function POST(request: NextRequest) {
   let sent = 0;
   for (const event of events ?? []) {
     const remindAt = new Date(new Date(event.starts_at).getTime() - event.reminder_minutes * 60_000);
-    if (remindAt < now || remindAt >= windowEnd) continue;
+    if (remindAt < reminderWindowStart || remindAt > now) continue;
 
     const { data: existing } = await supabase
       .from("reminder_deliveries")
@@ -47,24 +49,28 @@ export async function POST(request: NextRequest) {
       .select("endpoint,p256dh,auth")
       .eq("user_id", event.user_id);
 
+    let delivered = false;
     for (const sub of subscriptions ?? []) {
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify({ title: event.title, body: `${event.reminder_minutes}분 후 일정이 시작됩니다.`, url: "/" })
+          JSON.stringify({ title: event.title, body: `${event.reminder_minutes}분 후 일정이 시작됩니다.`, url: "/" }),
         );
+        delivered = true;
         sent += 1;
       } catch {
         // Stale subscriptions can be cleaned in a later maintenance pass.
       }
     }
 
-    await supabase.from("reminder_deliveries").upsert({
-      event_id: event.id,
-      user_id: event.user_id,
-      remind_at: remindAt.toISOString(),
-      sent_at: new Date().toISOString(),
-    });
+    if (delivered) {
+      await supabase.from("reminder_deliveries").upsert({
+        event_id: event.id,
+        user_id: event.user_id,
+        remind_at: remindAt.toISOString(),
+        sent_at: new Date().toISOString(),
+      });
+    }
   }
 
   return NextResponse.json({ sent });
