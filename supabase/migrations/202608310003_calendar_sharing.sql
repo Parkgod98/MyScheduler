@@ -18,9 +18,11 @@ create table if not exists public.calendar_subscriptions (
 alter table public.calendar_profiles enable row level security;
 alter table public.calendar_subscriptions enable row level security;
 
+drop policy if exists "profiles own row" on public.calendar_profiles;
 create policy "profiles own row" on public.calendar_profiles
 for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
+drop policy if exists "subscriptions own row" on public.calendar_subscriptions;
 create policy "subscriptions own row" on public.calendar_subscriptions
 for all using (auth.uid() = subscriber_id) with check (auth.uid() = subscriber_id);
 
