@@ -7,11 +7,23 @@ import android.content.Context;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 
 public class MainActivity extends Activity {
+    private static final long WIDGET_SYNC_INTERVAL_MS = 2_000L;
+
     private WebView webView;
+    private final Handler widgetSyncHandler = new Handler(Looper.getMainLooper());
+    private final Runnable widgetSyncRunnable = new Runnable() {
+        @Override
+        public void run() {
+            syncWidgetSummary();
+            widgetSyncHandler.postDelayed(this, WIDGET_SYNC_INTERVAL_MS);
+        }
+    };
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,7 +45,7 @@ public class MainActivity extends Activity {
 
             @Override
             public void onPageFinished(WebView view, String url) {
-                view.postDelayed(MainActivity.this::syncWidgetSummary, 1800);
+                restartWidgetSync();
             }
         });
         webView.loadUrl(BuildConfig.MYSCHEDULER_URL);
@@ -42,7 +54,28 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
-        if (webView != null) webView.postDelayed(this::syncWidgetSummary, 800);
+        restartWidgetSync();
+    }
+
+    @Override
+    protected void onPause() {
+        widgetSyncHandler.removeCallbacks(widgetSyncRunnable);
+        super.onPause();
+    }
+
+    @Override
+    protected void onDestroy() {
+        widgetSyncHandler.removeCallbacks(widgetSyncRunnable);
+        if (webView != null) {
+            webView.destroy();
+            webView = null;
+        }
+        super.onDestroy();
+    }
+
+    private void restartWidgetSync() {
+        widgetSyncHandler.removeCallbacks(widgetSyncRunnable);
+        widgetSyncHandler.post(widgetSyncRunnable);
     }
 
     private void syncWidgetSummary() {
