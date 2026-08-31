@@ -7,6 +7,8 @@ create table if not exists public.events (
   starts_at timestamptz not null,
   notes text not null default '',
   reminder_minutes integer not null default 10 check (reminder_minutes >= 0 and reminder_minutes <= 10080),
+  category text not null default 'general' check (category in ('deadline', 'exam', 'result', 'interview', 'general')),
+  completed boolean not null default false,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
 );
@@ -37,4 +39,5 @@ create policy "push own rows" on public.push_subscriptions for all using (auth.u
 create policy "deliveries own rows" on public.reminder_deliveries for select using (auth.uid() = user_id);
 
 create index if not exists events_user_starts_idx on public.events(user_id, starts_at);
+create index if not exists events_user_completed_starts_idx on public.events(user_id, completed, starts_at);
 create index if not exists push_user_idx on public.push_subscriptions(user_id);
