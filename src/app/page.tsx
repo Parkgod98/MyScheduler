@@ -151,7 +151,8 @@ export default function Home() {
       if (!error.message.includes("get_subscribed_events")) setStatus(`구독 캘린더 로드 실패: ${error.message}`);
       return;
     }
-    setSharedEvents((data ?? []).map((row) => sharedRowToEvent(row as Record<string, unknown>)));
+    const sharedRows = (data ?? []) as Record<string, unknown>[];
+    setSharedEvents(sharedRows.map(sharedRowToEvent));
   }, [month, supabase, userId]);
 
   useEffect(() => {
