@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import "./ux-v3.css";
 
 export const metadata: Metadata = {
   title: "MyScheduler",
