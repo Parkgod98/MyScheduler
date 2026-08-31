@@ -25,7 +25,16 @@ export function SharingPanel({ supabase, userId, onChanged }: { supabase: Supaba
     setSubscriptions((subscriptionRows ?? []) as Subscription[]);
   }, [supabase, userId]);
 
-  useEffect(() => { void load(); }, [load]);
+  useEffect(() => {
+    let cancelled = false;
+    async function initialize() {
+      await Promise.resolve();
+      if (cancelled) return;
+      await load();
+    }
+    void initialize();
+    return () => { cancelled = true; };
+  }, [load]);
 
   async function saveProfile(patch: Partial<Profile>) {
     if (!supabase || !userId || !profile) return;
