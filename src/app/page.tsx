@@ -15,7 +15,7 @@ import {
   subMonths,
 } from "date-fns";
 import { ko } from "date-fns/locale";
-import { Bell, CalendarDays, Check, ChevronLeft, ChevronRight, ListTodo, Plus, Settings, Sparkles, X } from "lucide-react";
+import { Bell, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, ListTodo, PencilLine, Plus, Settings, Sparkles, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { SharingPanel } from "@/components/SharingPanel";
@@ -335,7 +335,7 @@ export default function Home() {
 }
 
 function DateSheet({ date, items, now, onClose, onPatch, onDelete, onAdd }: { date: Date; items: ScheduleEvent[]; now: number; onClose: () => void; onPatch: PatchEvent; onDelete: (id: string) => Promise<void>; onAdd: () => void; }) {
-  return <div className="sheet-backdrop" onMouseDown={onClose} role="presentation"><section className="bottom-sheet" onMouseDown={(event) => event.stopPropagation()} aria-modal="true" role="dialog"><div className="sheet-handle" /><div className="sheet-header"><div><span className="eyebrow">{format(date, "yyyy.MM.dd")}</span><h2>{format(date, "M월 d일 EEEE", { locale: ko })} · {items.length}건</h2></div><button className="icon-button" onClick={onClose}><X size={20} /></button></div><div className="sheet-list">{items.length === 0 ? <div className="empty-state">등록된 일정이 없습니다.</div> : items.map((item) => <TaskCard key={item.id} item={item} now={now} onPatch={onPatch} onDelete={onDelete} />)}</div><button className="primary wide" onClick={onAdd}><Plus size={17} /> 이 날짜에 일정 추가</button></section></div>;
+  return <div className="sheet-backdrop" onMouseDown={onClose} role="presentation"><section className="bottom-sheet" onMouseDown={(event) => event.stopPropagation()} aria-modal="true" role="dialog"><div className="sheet-handle" /><div className="sheet-header"><div><span className="eyebrow">{format(date, "yyyy.MM.dd")}</span><h2>{format(date, "M월 d일 EEEE", { locale: ko })} · {items.length}건</h2></div><button className="icon-button" onClick={onClose} aria-label="닫기"><X size={20} /></button></div><div className="sheet-list">{items.length === 0 ? <div className="empty-state">등록된 일정이 없습니다.</div> : items.map((item) => <TaskCard key={item.id} item={item} now={now} onPatch={onPatch} onDelete={onDelete} />)}</div><button className="primary wide" onClick={onAdd}><Plus size={17} /> 이 날짜에 일정 추가</button></section></div>;
 }
 
 function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: number; onPatch: PatchEvent; onDelete: (id: string) => Promise<void>; }) {
@@ -365,6 +365,11 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
     if (!text) return;
     setChecklist((current) => [...current, { id: crypto.randomUUID(), text, done: false }]);
     setNewItem("");
+  }
+
+  function beginEditing() {
+    setEditError("");
+    setEditing(true);
   }
 
   function cancelEditing() {
@@ -400,27 +405,34 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
     }
   }
 
-  return <article className={`task-card ${item.completed ? "completed" : ""}`}>
-    <div className="task-card-top"><div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{dday(item.startsAt, now)}</span></div><button className={`complete-button ${item.completed ? "done" : ""}`} onClick={() => void onPatch(item, { completed: !item.completed })}>{item.completed ? <Check size={15} /> : null}{item.completed ? "완료" : "완료 처리"}</button></div>
-
-    {editing ? <div className="preview-card">
-      <input className="preview-title" value={title} onChange={(event) => setTitle(event.target.value)} aria-label="일정명" />
-      <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} aria-label="날짜와 시간" />
-      <div className="preview-row">
-        <select value={category} onChange={(event) => setCategory(event.target.value as EventCategory)} aria-label="카테고리">{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
-        <input type="number" min={0} step={10} value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))} aria-label="알림 몇 분 전" placeholder="알림 몇 분 전" />
+  return <article className={`task-card ${item.completed ? "completed" : ""} ${editing ? "editing" : ""}`}>
+    <div className="task-card-top">
+      <div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{dday(item.startsAt, now)}</span></div>
+      <div className="task-card-icon-actions">
+        <button className={`task-icon-action complete ${item.completed ? "active" : ""}`} onClick={() => void onPatch(item, { completed: !item.completed })} aria-label={item.completed ? "완료 취소" : "완료 처리"} title={item.completed ? "완료 취소" : "완료 처리"}><CheckCircle2 size={18} /></button>
+        <button className={`task-icon-action edit ${editing ? "active" : ""}`} onClick={editing ? cancelEditing : beginEditing} aria-label={editing ? "편집 취소" : "일정 수정"} title={editing ? "편집 취소" : "일정 수정"}><PencilLine size={17} /></button>
       </div>
-      <div className="page-description">알림은 일정 시작 기준 <strong>{reminderLabel(reminderMinutes)}</strong>으로 저장됩니다.</div>
-      {editError && <div className="status-toast">{editError}</div>}
-    </div> : <>
+    </div>
+
+    {editing ? <div className="task-edit-panel">
+      <div className="task-edit-heading"><div><span>일정 편집</span><strong>핵심 정보와 준비사항을 한 번에 수정합니다.</strong></div></div>
+      <label className="task-field"><span>일정명</span><input className="preview-title" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+      <label className="task-field"><span>날짜 · 시간</span><input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label>
+      <div className="preview-row">
+        <label className="task-field"><span>카테고리</span><select value={category} onChange={(event) => setCategory(event.target.value as EventCategory)}>{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+        <label className="task-field"><span>알림 · 몇 분 전</span><input type="number" min={0} step={10} value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))} /></label>
+      </div>
+      <div className="task-reminder-hint">일정 시작 기준 <strong>{reminderLabel(reminderMinutes)}</strong>에 알림</div>
+      {editError && <div className="task-edit-error">{editError}</div>}
+    </div> : <div className="task-card-body">
       <h3>{item.title}</h3>
       <div className="task-time">{format(new Date(item.startsAt), "M월 d일 EEEE HH:mm", { locale: ko })}</div>
-      <div className="task-time">알림 · {reminderLabel(item.reminderMinutes)}</div>
-    </>}
+      <div className="task-time task-reminder-line">알림 · {reminderLabel(item.reminderMinutes)}</div>
+    </div>}
 
     <div className="task-detail-section"><label>메모</label><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="준비사항, 장소, 링크 등을 기록하세요." /></div>
-    <div className="task-detail-section"><label>준비물 체크리스트</label><div className="checklist">{checklist.map((check) => <label className="check-row" key={check.id}><input type="checkbox" checked={check.done} onChange={() => setChecklist((current) => current.map((entry) => entry.id === check.id ? { ...entry, done: !entry.done } : entry))} /><span>{check.text}</span><button onClick={() => setChecklist((current) => current.filter((entry) => entry.id !== check.id))}><X size={14} /></button></label>)}</div><div className="check-add"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addChecklist(); } }} placeholder="예: 여권" /><button className="secondary" onClick={addChecklist}>추가</button></div></div>
+    <div className="task-detail-section"><label>준비물 체크리스트</label><div className="checklist">{checklist.map((check) => <label className="check-row" key={check.id}><input type="checkbox" checked={check.done} onChange={() => setChecklist((current) => current.map((entry) => entry.id === check.id ? { ...entry, done: !entry.done } : entry))} /><span>{check.text}</span><button onClick={() => setChecklist((current) => current.filter((entry) => entry.id !== check.id))} aria-label="준비물 삭제"><X size={14} /></button></label>)}</div><div className="check-add"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addChecklist(); } }} placeholder="예: 여권" /><button className="secondary" onClick={addChecklist}>추가</button></div></div>
 
-    <div className="task-actions">{editing ? <><button className="primary" onClick={() => void saveEditing()}>변경사항 저장</button><button className="secondary" onClick={cancelEditing}>취소</button></> : <><button className="secondary" onClick={() => void onPatch(item, { notes, checklist })}>메모 저장</button><button className="secondary" onClick={() => { setEditError(""); setEditing(true); }}>일정 수정</button></>}<button className="danger-link" onClick={() => void onDelete(item.id)}>삭제</button></div>
+    <div className={`task-actions ${editing ? "editing-actions" : ""}`}>{editing ? <><button className="primary" onClick={() => void saveEditing()}>변경사항 저장</button><button className="secondary" onClick={cancelEditing}>취소</button></> : <button className="secondary compact-save" onClick={() => void onPatch(item, { notes, checklist })}>메모·준비물 저장</button>}<button className="danger-link" onClick={() => void onDelete(item.id)}>삭제</button></div>
   </article>;
 }
