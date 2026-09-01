@@ -1,0 +1,114 @@
+:root{
+  --ui-bg:#f5f6f8;
+  --ui-surface:#ffffff;
+  --ui-surface-soft:#f8f9fb;
+  --ui-border:#e6e9ee;
+  --ui-border-strong:#d8dde5;
+  --ui-text:#172033;
+  --ui-muted:#7d8796;
+  --ui-subtle:#98a0ac;
+  --ui-accent:#5368c7;
+  --ui-accent-soft:#eef2ff;
+  --ui-danger:#c4535b;
+  --ui-success:#43804c;
+  --ui-radius-sm:10px;
+  --ui-radius-md:14px;
+  --ui-radius-lg:18px;
+  --ui-shadow-sm:0 4px 14px rgba(22,32,51,.055);
+  --ui-shadow-md:0 12px 32px rgba(22,32,51,.08);
+}
+
+html,body{background:var(--ui-bg)}
+body{color:var(--ui-text);-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
+button,input,select,textarea{transition:border-color .16s ease,box-shadow .16s ease,background .16s ease,color .16s ease,transform .12s ease,opacity .16s ease}
+button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:3px solid rgba(83,104,199,.16);outline-offset:2px}
+button:active{transform:translateY(1px)}
+
+.topbar{background:rgba(245,246,248,.86);border-bottom:1px solid rgba(218,223,231,.78);backdrop-filter:blur(20px) saturate(1.2)}
+.topbar-inner{min-height:70px}
+.brand{font-size:20px;letter-spacing:-.045em}
+.top-summary{color:var(--ui-muted);font-weight:650}
+.icon-button{border:1px solid var(--ui-border);border-radius:12px;background:rgba(255,255,255,.92);color:#4d5767;box-shadow:0 2px 8px rgba(22,32,51,.035)}
+.icon-button:hover{border-color:var(--ui-border-strong);background:#fff;color:#232d3e;box-shadow:var(--ui-shadow-sm)}
+
+.main-content{padding-top:22px}
+.overview-row>div,.calendar-card,.settings-card,.task-card,.preview-card{border-color:var(--ui-border);box-shadow:0 1px 0 rgba(22,32,51,.02)}
+.overview-row>div{border-radius:var(--ui-radius-md);background:rgba(255,255,255,.94)}
+.overview-row span{color:var(--ui-subtle)}
+.overview-row strong{font-weight:850}
+
+.month-actions button{border:1px solid var(--ui-border);border-radius:10px;background:#fff;color:#596373}
+.month-actions button:hover{border-color:var(--ui-border-strong);background:var(--ui-surface-soft);color:#263143}
+.shared-toggle{box-shadow:none}
+.shared-toggle:hover{border-color:var(--ui-border-strong);background:var(--ui-surface-soft)}
+
+.calendar-card{border-radius:20px;box-shadow:var(--ui-shadow-sm)}
+.weekday{background:#fbfbfc;color:#a0a7b1}
+.day{transition:background .16s ease,box-shadow .16s ease}
+.day:hover{background:#fbfcff;box-shadow:inset 0 0 0 1px rgba(83,104,199,.08)}
+.day.today .day-number{box-shadow:0 4px 10px rgba(24,34,53,.14)}
+.calendar-event{border-radius:8px}
+.more-events{background:#f5f6f8;color:#747e8d}
+
+.filter-strip button{border-color:var(--ui-border);background:#fff;color:#7a8492;font-weight:750}
+.filter-strip button:hover{border-color:var(--ui-border-strong);background:var(--ui-surface-soft);color:#3d4758}
+.filter-strip button.active{background:#1f293b;border-color:#1f293b;box-shadow:0 4px 12px rgba(31,41,59,.12)}
+
+.task-list{gap:14px}
+.task-card{border-radius:18px;padding:17px;box-shadow:0 4px 18px rgba(22,32,51,.045)}
+.task-card:hover{border-color:#dce1e9;box-shadow:0 8px 24px rgba(22,32,51,.065)}
+.task-card.editing{box-shadow:0 14px 36px rgba(52,65,105,.10)}
+.task-card h3{font-size:18px;line-height:1.35}
+.task-time{line-height:1.45}
+.category-badge,.dday{font-weight:850;letter-spacing:-.01em}
+.task-icon-action{box-shadow:none}
+.task-icon-action:hover{transform:translateY(-1px)}
+.task-detail-section>label{letter-spacing:.02em}
+.task-card:not(.editing) .task-detail-section{border-top-color:#eef1f4}
+.task-card:not(.editing) .check-row{border:1px solid #eff1f4;background:#fafbfc}
+.task-edit-panel{border-color:#e3e7f0;background:#fff;box-shadow:0 1px 0 rgba(22,32,51,.02)}
+
+input,textarea,select{border-color:var(--ui-border);border-radius:12px;background:#fff}
+input:hover,textarea:hover,select:hover{border-color:var(--ui-border-strong)}
+input:focus,textarea:focus,select:focus{border-color:#8391dd;box-shadow:0 0 0 4px rgba(83,104,199,.10)}
+textarea{line-height:1.55}
+
+.primary,.secondary,.danger-link{border-radius:11px;font-weight:780}
+.primary{background:#202b3e;box-shadow:0 5px 14px rgba(32,43,62,.12)}
+.primary:hover{background:#172235;box-shadow:0 7px 18px rgba(32,43,62,.16)}
+.secondary{background:#f0f2f5;color:#3d4656}
+.secondary:hover{background:#e9edf2;color:#252f40}
+.danger-link{color:var(--ui-danger)}
+.danger-link:hover{background:#fff2f3}
+
+.settings-card{border-radius:18px;padding:18px;background:#fff;box-shadow:0 4px 18px rgba(22,32,51,.04)}
+.settings-card h2{letter-spacing:-.02em}
+
+.bottom-nav{height:68px;border:1px solid rgba(217,222,230,.88);border-radius:22px;background:rgba(255,255,255,.90);backdrop-filter:blur(22px) saturate(1.2);box-shadow:0 16px 42px rgba(25,35,55,.14)}
+.bottom-nav button{border-radius:14px;color:#929aa6;font-weight:760;transition:background .16s ease,color .16s ease,transform .12s ease}
+.bottom-nav button:hover{background:#f6f7f9;color:#596373}
+.bottom-nav button.active{background:#f0f2f5;color:#202a3a}
+.add-icon{width:34px;height:34px;border-radius:12px;background:#202b3e;box-shadow:0 7px 18px rgba(24,34,53,.20)}
+
+.sheet-backdrop{background:rgba(17,24,39,.32);backdrop-filter:blur(2px)}
+.bottom-sheet{border:1px solid rgba(255,255,255,.75);border-bottom:0;border-radius:26px 26px 0 0;background:#f8f9fb;box-shadow:0 -24px 64px rgba(15,23,42,.18)}
+.sheet-handle{background:#c7cdd6}
+.sheet-header{padding:2px 2px 4px}
+.sheet-header h2{letter-spacing:-.035em}
+.sheet-list{gap:12px}
+
+.status-toast{color:#7f8996}
+.empty-state{border-color:#dfe4ea;background:#fbfcfd;color:#9199a5}
+
+@media(max-width:760px){
+  .topbar-inner{min-height:64px}
+  .main-content{padding-top:14px}
+  .task-card{padding:14px;border-radius:16px}
+  .task-card h3{font-size:17px}
+  .bottom-nav{height:64px;border-radius:20px}
+  .bottom-sheet{border-radius:24px 24px 0 0;padding-left:14px;padding-right:14px}
+}
+
+@media(prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;transition-duration:.01ms!important;animation-duration:.01ms!important;animation-iteration-count:1!important}
+}
