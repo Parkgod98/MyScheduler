@@ -31,6 +31,8 @@ type ScheduleEvent = ParsedSchedule & {
   readOnly?: boolean;
   ownerName?: string;
 };
+type EventPatch = Partial<Pick<ScheduleEvent, "title" | "startsAt" | "category" | "reminderMinutes" | "notes" | "checklist" | "completed">>;
+type PatchEvent = (item: ScheduleEvent, patch: EventPatch) => Promise<boolean>;
 type ViewMode = "calendar" | "tasks" | "add" | "settings";
 type TaskFilter = "all" | EventCategory;
 
@@ -77,6 +79,17 @@ function densityClass(count: number) {
   if (count >= 3) return "density-busy";
   if (count >= 2) return "density-medium";
   return "density-calm";
+}
+
+function reminderLabel(minutes: number) {
+  if (minutes === 0) return "정각";
+  if (minutes % 1440 === 0) return `${minutes / 1440}일 전`;
+  if (minutes % 60 === 0) return `${minutes / 60}시간 전`;
+  return `${minutes}분 전`;
+}
+
+function toDateTimeLocal(startsAt: string) {
+  return format(new Date(startsAt), "yyyy-MM-dd'T'HH:mm");
 }
 
 function rowToEvent(row: Record<string, unknown>): ScheduleEvent {
@@ -259,18 +272,26 @@ export default function Home() {
     setView("calendar");
   }
 
-  async function patchEvent(item: ScheduleEvent, patch: Partial<Pick<ScheduleEvent, "notes" | "checklist" | "completed">>) {
-    if (item.readOnly) return;
+  async function patchEvent(item: ScheduleEvent, patch: EventPatch): Promise<boolean> {
+    if (item.readOnly) return false;
     if (supabase && userId) {
       const dbPatch: Record<string, unknown> = {};
+      if (patch.title !== undefined) dbPatch.title = patch.title;
+      if (patch.startsAt !== undefined) dbPatch.starts_at = patch.startsAt;
+      if (patch.category !== undefined) dbPatch.category = patch.category;
+      if (patch.reminderMinutes !== undefined) dbPatch.reminder_minutes = patch.reminderMinutes;
       if (patch.notes !== undefined) dbPatch.notes = patch.notes;
       if (patch.checklist !== undefined) dbPatch.checklist = patch.checklist;
       if (patch.completed !== undefined) dbPatch.completed = patch.completed;
       const { error } = await supabase.from("events").update(dbPatch).eq("id", item.id).eq("user_id", userId);
-      if (error) return setStatus(`저장 실패: ${error.message}`);
+      if (error) {
+        setStatus(`저장 실패: ${error.message}`);
+        return false;
+      }
     }
-    setEvents((current) => current.map((event) => event.id === item.id ? { ...event, ...patch } : event));
-    setStatus("저장했습니다.");
+    setEvents((current) => sortEvents(current.map((event) => event.id === item.id ? { ...event, ...patch } : event)));
+    setStatus("일정을 저장했습니다.");
+    return true;
   }
 
   async function removeEvent(id: string) {
@@ -313,15 +334,93 @@ export default function Home() {
   </div>;
 }
 
-function DateSheet({ date, items, now, onClose, onPatch, onDelete, onAdd }: { date: Date; items: ScheduleEvent[]; now: number; onClose: () => void; onPatch: (item: ScheduleEvent, patch: Partial<Pick<ScheduleEvent, "notes" | "checklist" | "completed">>) => Promise<void>; onDelete: (id: string) => Promise<void>; onAdd: () => void; }) {
+function DateSheet({ date, items, now, onClose, onPatch, onDelete, onAdd }: { date: Date; items: ScheduleEvent[]; now: number; onClose: () => void; onPatch: PatchEvent; onDelete: (id: string) => Promise<void>; onAdd: () => void; }) {
   return <div className="sheet-backdrop" onMouseDown={onClose} role="presentation"><section className="bottom-sheet" onMouseDown={(event) => event.stopPropagation()} aria-modal="true" role="dialog"><div className="sheet-handle" /><div className="sheet-header"><div><span className="eyebrow">{format(date, "yyyy.MM.dd")}</span><h2>{format(date, "M월 d일 EEEE", { locale: ko })} · {items.length}건</h2></div><button className="icon-button" onClick={onClose}><X size={20} /></button></div><div className="sheet-list">{items.length === 0 ? <div className="empty-state">등록된 일정이 없습니다.</div> : items.map((item) => <TaskCard key={item.id} item={item} now={now} onPatch={onPatch} onDelete={onDelete} />)}</div><button className="primary wide" onClick={onAdd}><Plus size={17} /> 이 날짜에 일정 추가</button></section></div>;
 }
 
-function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: number; onPatch: (item: ScheduleEvent, patch: Partial<Pick<ScheduleEvent, "notes" | "checklist" | "completed">>) => Promise<void>; onDelete: (id: string) => Promise<void>; }) {
+function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: number; onPatch: PatchEvent; onDelete: (id: string) => Promise<void>; }) {
+  const [editing, setEditing] = useState(false);
+  const [title, setTitle] = useState(item.title);
+  const [startsAt, setStartsAt] = useState(toDateTimeLocal(item.startsAt));
+  const [category, setCategory] = useState<EventCategory>(item.category);
+  const [reminderMinutes, setReminderMinutes] = useState(item.reminderMinutes);
   const [notes, setNotes] = useState(item.notes);
   const [checklist, setChecklist] = useState<ChecklistItem[]>(item.checklist);
   const [newItem, setNewItem] = useState("");
+  const [editError, setEditError] = useState("");
+
+  useEffect(() => {
+    setTitle(item.title);
+    setStartsAt(toDateTimeLocal(item.startsAt));
+    setCategory(item.category);
+    setReminderMinutes(item.reminderMinutes);
+    setNotes(item.notes);
+    setChecklist(item.checklist);
+  }, [item.title, item.startsAt, item.category, item.reminderMinutes, item.notes, item.checklist]);
+
   if (item.readOnly) return <article className="task-card shared-task"><div className="task-card-top"><div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{dday(item.startsAt, now)}</span><span className="shared-owner-badge">{item.ownerName}</span></div></div><h3>{item.title}</h3><div className="task-time">{format(new Date(item.startsAt), "M월 d일 EEEE HH:mm", { locale: ko })}</div><div className="sharing-note">구독 캘린더 · 읽기 전용</div></article>;
-  function addChecklist() { const text = newItem.trim(); if (!text) return; setChecklist((current) => [...current, { id: crypto.randomUUID(), text, done: false }]); setNewItem(""); }
-  return <article className={`task-card ${item.completed ? "completed" : ""}`}><div className="task-card-top"><div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{dday(item.startsAt, now)}</span></div><button className={`complete-button ${item.completed ? "done" : ""}`} onClick={() => void onPatch(item, { completed: !item.completed })}>{item.completed ? <Check size={15} /> : null}{item.completed ? "완료" : "완료 처리"}</button></div><h3>{item.title}</h3><div className="task-time">{format(new Date(item.startsAt), "M월 d일 EEEE HH:mm", { locale: ko })}</div><div className="task-detail-section"><label>메모</label><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="준비사항, 장소, 링크 등을 기록하세요." /></div><div className="task-detail-section"><label>준비물 체크리스트</label><div className="checklist">{checklist.map((check) => <label className="check-row" key={check.id}><input type="checkbox" checked={check.done} onChange={() => setChecklist((current) => current.map((entry) => entry.id === check.id ? { ...entry, done: !entry.done } : entry))} /><span>{check.text}</span><button onClick={() => setChecklist((current) => current.filter((entry) => entry.id !== check.id))}><X size={14} /></button></label>)}</div><div className="check-add"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addChecklist(); } }} placeholder="예: 여권" /><button className="secondary" onClick={addChecklist}>추가</button></div></div><div className="task-actions"><button className="secondary" onClick={() => void onPatch(item, { notes, checklist })}>메모·준비물 저장</button><button className="danger-link" onClick={() => void onDelete(item.id)}>삭제</button></div></article>;
+
+  function addChecklist() {
+    const text = newItem.trim();
+    if (!text) return;
+    setChecklist((current) => [...current, { id: crypto.randomUUID(), text, done: false }]);
+    setNewItem("");
+  }
+
+  function cancelEditing() {
+    setTitle(item.title);
+    setStartsAt(toDateTimeLocal(item.startsAt));
+    setCategory(item.category);
+    setReminderMinutes(item.reminderMinutes);
+    setNotes(item.notes);
+    setChecklist(item.checklist);
+    setEditError("");
+    setEditing(false);
+  }
+
+  async function saveEditing() {
+    const normalizedTitle = title.trim();
+    if (!normalizedTitle) return setEditError("일정명을 입력해주세요.");
+    if (!startsAt) return setEditError("날짜와 시간을 입력해주세요.");
+    const parsedDate = new Date(startsAt);
+    if (Number.isNaN(parsedDate.getTime())) return setEditError("날짜와 시간을 확인해주세요.");
+    if (!Number.isFinite(reminderMinutes) || reminderMinutes < 0) return setEditError("알림 시간은 0분 이상이어야 합니다.");
+
+    const saved = await onPatch(item, {
+      title: normalizedTitle,
+      startsAt: parsedDate.toISOString(),
+      category,
+      reminderMinutes,
+      notes,
+      checklist,
+    });
+    if (saved) {
+      setEditError("");
+      setEditing(false);
+    }
+  }
+
+  return <article className={`task-card ${item.completed ? "completed" : ""}`}>
+    <div className="task-card-top"><div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{dday(item.startsAt, now)}</span></div><button className={`complete-button ${item.completed ? "done" : ""}`} onClick={() => void onPatch(item, { completed: !item.completed })}>{item.completed ? <Check size={15} /> : null}{item.completed ? "완료" : "완료 처리"}</button></div>
+
+    {editing ? <div className="preview-card">
+      <input className="preview-title" value={title} onChange={(event) => setTitle(event.target.value)} aria-label="일정명" />
+      <input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} aria-label="날짜와 시간" />
+      <div className="preview-row">
+        <select value={category} onChange={(event) => setCategory(event.target.value as EventCategory)} aria-label="카테고리">{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
+        <input type="number" min={0} step={10} value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))} aria-label="알림 몇 분 전" placeholder="알림 몇 분 전" />
+      </div>
+      <div className="page-description">알림은 일정 시작 기준 <strong>{reminderLabel(reminderMinutes)}</strong>으로 저장됩니다.</div>
+      {editError && <div className="status-toast">{editError}</div>}
+    </div> : <>
+      <h3>{item.title}</h3>
+      <div className="task-time">{format(new Date(item.startsAt), "M월 d일 EEEE HH:mm", { locale: ko })}</div>
+      <div className="task-time">알림 · {reminderLabel(item.reminderMinutes)}</div>
+    </>}
+
+    <div className="task-detail-section"><label>메모</label><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="준비사항, 장소, 링크 등을 기록하세요." /></div>
+    <div className="task-detail-section"><label>준비물 체크리스트</label><div className="checklist">{checklist.map((check) => <label className="check-row" key={check.id}><input type="checkbox" checked={check.done} onChange={() => setChecklist((current) => current.map((entry) => entry.id === check.id ? { ...entry, done: !entry.done } : entry))} /><span>{check.text}</span><button onClick={() => setChecklist((current) => current.filter((entry) => entry.id !== check.id))}><X size={14} /></button></label>)}</div><div className="check-add"><input value={newItem} onChange={(event) => setNewItem(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); addChecklist(); } }} placeholder="예: 여권" /><button className="secondary" onClick={addChecklist}>추가</button></div></div>
+
+    <div className="task-actions">{editing ? <><button className="primary" onClick={() => void saveEditing()}>변경사항 저장</button><button className="secondary" onClick={cancelEditing}>취소</button></> : <><button className="secondary" onClick={() => void onPatch(item, { notes, checklist })}>메모 저장</button><button className="secondary" onClick={() => { setEditError(""); setEditing(true); }}>일정 수정</button></>}<button className="danger-link" onClick={() => void onDelete(item.id)}>삭제</button></div>
+  </article>;
 }
