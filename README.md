@@ -1,6 +1,6 @@
 # MyScheduler
 
-PC와 Android에서 함께 쓰는 개인 일정·Task 관리 PWA입니다. 채용 마감, 시험, 발표, 면접처럼 여러 일정을 자연어로 한 번에 등록하고 관리하는 흐름을 중심으로 합니다.
+PC · Android · iPhone에서 함께 쓰는 개인 일정·Task 관리 PWA입니다. 채용 마감, 시험, 발표, 면접처럼 여러 일정을 자연어로 한 번에 등록하고 관리하는 흐름을 중심으로 합니다.
 
 ## 현재 구현
 - 월간 캘린더 + 전체 Task 목록
@@ -10,6 +10,7 @@ PC와 Android에서 함께 쓰는 개인 일정·Task 관리 PWA입니다. 채�
 - 이메일+비밀번호 로그인과 사용자별 일정 동기화
 - 모바일 하단 네비게이션, 날짜 Bottom Sheet, D-day
 - PWA manifest + Service Worker
+- Android/PC 및 iPhone 홈 화면 PWA 설치
 - Push Subscription 저장 및 서버 예약 알림 API(`/api/reminders`)
 - RLS가 적용된 Supabase SQL 스키마
 - AGENTS/docs/validator/CI 기반 Harness Engineering
@@ -56,11 +57,21 @@ SUPABASE_DB_PASSWORD
 ## 이메일+비밀번호 인증
 Supabase Dashboard에서 Email provider를 활성화합니다. 개인/지인용으로 인증 메일 없이 바로 가입하려면 Authentication 설정의 `Confirm Email`을 끕니다.
 
-## PC ↔ Android 동기화
-같은 계정으로 로그인하면 일정이 계정 기준으로 동기화됩니다.
+## 기기 간 동기화
+같은 계정으로 로그인하면 PC · Android · iPhone에서 일정이 계정 기준으로 동기화됩니다.
+
+## iPhone Safari 홈 화면 설치
+1. iPhone의 Safari에서 MyScheduler Production URL을 엽니다.
+2. Safari 하단의 공유 버튼을 누릅니다.
+3. `홈 화면에 추가`를 선택합니다.
+4. 홈 화면의 `MyScheduler` 아이콘으로 실행합니다.
+
+Safari 탭으로 접속한 iPhone에는 설치 안내 배너가 한 번 표시됩니다. 홈 화면 앱으로 실행하면 standalone 모드가 적용되어 Safari 주소창 없이 앱처럼 사용할 수 있습니다.
+
+iOS Web Push를 사용할 때는 홈 화면에 추가한 MyScheduler 앱에서 로그인한 뒤 `알림 켜기`를 눌러 권한과 Push subscription을 등록합니다.
 
 ## Web Push
-VAPID 키를 배포 환경에 등록하고 Android/PC에서 각각 알림을 허용하면 각 기기의 Push subscription이 저장됩니다. `POST /api/reminders`는 `Authorization: Bearer $CRON_SECRET`을 요구하며 1분 주기 scheduler에서 호출합니다.
+VAPID 키를 배포 환경에 등록하고 각 기기에서 알림을 허용하면 각 기기의 Push subscription이 저장됩니다. `POST /api/reminders`는 `Authorization: Bearer $CRON_SECRET`을 요구하며 1분 주기 scheduler에서 호출합니다.
 
 ## 검증
 ```bash

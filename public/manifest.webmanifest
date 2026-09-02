@@ -1,8 +1,9 @@
 {
   "name": "MyScheduler",
-  "short_name": "Scheduler",
-  "description": "개인 일정 관리 PWA",
+  "short_name": "MyScheduler",
+  "description": "PC · Android · iPhone에서 함께 쓰는 개인 일정 관리 PWA",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#f7f8fa",
   "theme_color": "#111827",
