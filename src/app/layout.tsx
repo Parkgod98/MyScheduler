@@ -11,6 +11,10 @@ export const metadata: Metadata = {
   description: "PC · Android · iPhone에서 함께 쓰는 개인 일정 관리 PWA",
   applicationName: "MyScheduler",
   manifest: "/manifest.webmanifest",
+  icons: {
+    icon: "/icon.svg",
+    apple: "/apple-touch-icon.png",
+  },
   appleWebApp: {
     capable: true,
     title: "MyScheduler",
