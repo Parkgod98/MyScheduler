@@ -1,0 +1,104 @@
+/* Event range + contextual quick-add */
+.day { --range-bleed: 8px; }
+.calendar-event.range-event {
+  margin-left: calc(var(--range-bleed) * -1);
+  margin-right: calc(var(--range-bleed) * -1);
+  border-left: 0;
+  border-radius: 0;
+  min-height: 24px;
+  align-content: center;
+  position: relative;
+  z-index: 2;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.42), inset 0 -1px 0 rgba(17,24,39,.04);
+}
+.calendar-event.range-event.range-start {
+  margin-left: 0;
+  border-radius: 8px 0 0 8px;
+  border-left: 3px solid currentColor;
+}
+.calendar-event.range-event.range-end {
+  margin-right: 0;
+  border-radius: 0 8px 8px 0;
+}
+.calendar-event.range-event.range-start.range-end {
+  border-radius: 8px;
+}
+.calendar-event.range-event .calendar-event-time { display: none; }
+.calendar-event.range-event .range-title-hidden {
+  color: transparent;
+  user-select: none;
+}
+.calendar-event.range-event.shared-event { opacity: .78; }
+
+.quick-add-context {
+  margin: 8px 0 14px;
+  padding: 11px 12px;
+  border: 1px solid #dce3fb;
+  border-radius: 14px;
+  background: #f4f6ff;
+  color: #566178;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.quick-add-context > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.quick-add-context strong { color: #34446f; }
+.quick-add-context > button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 10px;
+  background: rgba(255,255,255,.76);
+  color: #7c879d;
+  display: grid;
+  place-items: center;
+}
+.range-input-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.range-input-grid > label {
+  display: grid;
+  gap: 5px;
+  color: #818b99;
+  font-size: 10px;
+  font-weight: 900;
+}
+.range-preview-note {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #eef3ff;
+  color: #5a68a5;
+  font-size: 10px;
+  font-weight: 800;
+}
+.range-task-badge {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 7px;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #eef3ff;
+  color: #5a68a5;
+  font-size: 9px;
+  font-weight: 900;
+}
+.task-tags .range-task-badge { margin-top: 0; }
+
+@media (max-width: 760px) {
+  .day { --range-bleed: 5px; }
+  .calendar-event.range-event { min-height: 19px; }
+  .calendar-event.range-event.range-start { border-left-width: 2px; }
+  .range-input-grid { grid-template-columns: 1fr; }
+  .quick-add-context { align-items: flex-start; }
+}
