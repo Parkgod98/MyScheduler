@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import "./ux-v3.css";
 import "./visual-polish.css";
+import "./event-ranges.css";
 import "./ios-pwa.css";
 
 import { IosInstallHint } from "@/components/IosInstallHint";
