@@ -5,12 +5,14 @@ create table if not exists public.events (
   user_id uuid not null references auth.users(id) on delete cascade,
   title text not null check (char_length(title) between 1 and 120),
   starts_at timestamptz not null,
+  ends_at timestamptz,
   notes text not null default '',
   reminder_minutes integer not null default 10 check (reminder_minutes >= 0 and reminder_minutes <= 10080),
   category text not null default 'general' check (category in ('deadline', 'exam', 'result', 'interview', 'general')),
   completed boolean not null default false,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint events_valid_range check (ends_at is null or ends_at >= starts_at)
 );
 
 create table if not exists public.push_subscriptions (
@@ -39,5 +41,6 @@ create policy "push own rows" on public.push_subscriptions for all using (auth.u
 create policy "deliveries own rows" on public.reminder_deliveries for select using (auth.uid() = user_id);
 
 create index if not exists events_user_starts_idx on public.events(user_id, starts_at);
+create index if not exists events_user_ends_idx on public.events(user_id, ends_at) where ends_at is not null;
 create index if not exists events_user_completed_starts_idx on public.events(user_id, completed, starts_at);
 create index if not exists push_user_idx on public.push_subscriptions(user_id);
