@@ -31,7 +31,7 @@ type ScheduleEvent = ParsedSchedule & {
   readOnly?: boolean;
   ownerName?: string;
 };
-type EventPatch = Partial<Pick<ScheduleEvent, "title" | "startsAt" | "category" | "reminderMinutes" | "notes" | "checklist" | "completed">>;
+type EventPatch = Partial<Pick<ScheduleEvent, "title" | "startsAt" | "endsAt" | "category" | "reminderMinutes" | "notes" | "checklist" | "completed">>;
 type PatchEvent = (item: ScheduleEvent, patch: EventPatch) => Promise<boolean>;
 type ViewMode = "calendar" | "tasks" | "add" | "settings";
 type TaskFilter = "all" | EventCategory;
@@ -63,8 +63,16 @@ function readLocalEvents(): ScheduleEvent[] {
   }
 }
 
+function eventTargetAt(item: Pick<ScheduleEvent, "startsAt" | "endsAt">) {
+  return item.endsAt ?? item.startsAt;
+}
+
 function sortEvents(items: ScheduleEvent[]) {
   return [...items].sort((a, b) => a.startsAt.localeCompare(b.startsAt));
+}
+
+function sortTasks(items: ScheduleEvent[]) {
+  return [...items].sort((a, b) => eventTargetAt(a).localeCompare(eventTargetAt(b)));
 }
 
 function dday(startsAt: string, now: number) {
@@ -72,6 +80,10 @@ function dday(startsAt: string, now: number) {
   if (days === 0) return "D-Day";
   if (days > 0) return `D-${days}`;
   return `D+${Math.abs(days)}`;
+}
+
+function eventDday(item: ScheduleEvent, now: number) {
+  return dday(eventTargetAt(item), now);
 }
 
 function densityClass(count: number) {
@@ -88,8 +100,40 @@ function reminderLabel(minutes: number) {
   return `${minutes}분 전`;
 }
 
-function toDateTimeLocal(startsAt: string) {
-  return format(new Date(startsAt), "yyyy-MM-dd'T'HH:mm");
+function toDateTimeLocal(value?: string | null) {
+  return value ? format(new Date(value), "yyyy-MM-dd'T'HH:mm") : "";
+}
+
+function isEventOnDay(item: Pick<ScheduleEvent, "startsAt" | "endsAt">, day: Date) {
+  const current = startOfDay(day).getTime();
+  const start = startOfDay(new Date(item.startsAt)).getTime();
+  const end = startOfDay(new Date(item.endsAt ?? item.startsAt)).getTime();
+  return current >= start && current <= end;
+}
+
+function isRangeEvent(item: Pick<ScheduleEvent, "startsAt" | "endsAt">) {
+  return Boolean(item.endsAt && !isSameDay(new Date(item.startsAt), new Date(item.endsAt)));
+}
+
+function rangeSegmentClass(item: ScheduleEvent, day: Date) {
+  if (!isRangeEvent(item)) return "";
+  const actualStart = isSameDay(day, new Date(item.startsAt));
+  const actualEnd = isSameDay(day, new Date(item.endsAt as string));
+  const visualStart = actualStart || day.getDay() === 0;
+  const visualEnd = actualEnd || day.getDay() === 6;
+  return `range-event ${visualStart ? "range-start" : "range-middle"} ${visualEnd ? "range-end" : ""}`;
+}
+
+function showRangeTitle(item: ScheduleEvent, day: Date) {
+  return !isRangeEvent(item) || isSameDay(day, new Date(item.startsAt)) || day.getDay() === 0;
+}
+
+function formatSchedulePeriod(item: Pick<ScheduleEvent, "startsAt" | "endsAt">) {
+  if (!item.endsAt) return format(new Date(item.startsAt), "M월 d일 EEEE HH:mm", { locale: ko });
+  const start = new Date(item.startsAt);
+  const end = new Date(item.endsAt);
+  if (isSameDay(start, end)) return `${format(start, "M월 d일 EEEE HH:mm", { locale: ko })} ~ ${format(end, "HH:mm")}`;
+  return `${format(start, "M월 d일 HH:mm")} ~ ${format(end, "M월 d일 HH:mm")}`;
 }
 
 function rowToEvent(row: Record<string, unknown>): ScheduleEvent {
@@ -97,6 +141,7 @@ function rowToEvent(row: Record<string, unknown>): ScheduleEvent {
     id: String(row.id),
     title: String(row.title),
     startsAt: String(row.starts_at),
+    endsAt: row.ends_at ? String(row.ends_at) : null,
     notes: String(row.notes ?? ""),
     reminderMinutes: Number(row.reminder_minutes ?? 60),
     category: (row.category ?? "general") as EventCategory,
@@ -110,6 +155,7 @@ function sharedRowToEvent(row: Record<string, unknown>): ScheduleEvent {
     id: `shared-${String(row.owner_id)}-${String(row.id)}`,
     title: String(row.title),
     startsAt: String(row.starts_at),
+    endsAt: row.ends_at ? String(row.ends_at) : null,
     notes: "",
     reminderMinutes: 0,
     category: (row.category ?? "general") as EventCategory,
@@ -132,6 +178,7 @@ export default function Home() {
   const [password, setPassword] = useState("");
   const [naturalText, setNaturalText] = useState("");
   const [preview, setPreview] = useState<ParsedSchedule[]>([]);
+  const [quickAddDate, setQuickAddDate] = useState<Date | null>(null);
   const [view, setView] = useState<ViewMode>("calendar");
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [sheetOpen, setSheetOpen] = useState(false);
@@ -144,7 +191,7 @@ export default function Home() {
     if (!supabase) return;
     const { data, error } = await supabase
       .from("events")
-      .select("id,title,starts_at,notes,reminder_minutes,category,completed,checklist")
+      .select("id,title,starts_at,ends_at,notes,reminder_minutes,category,completed,checklist")
       .eq("user_id", uid)
       .order("starts_at");
     if (error) return setStatus(`동기화 실패: ${error.message}`);
@@ -210,11 +257,11 @@ export default function Home() {
   }), [month]);
 
   const calendarEvents = showShared ? sortEvents([...events, ...sharedEvents]) : sortEvents(events);
-  const selectedEvents = sortEvents(calendarEvents.filter((event) => isSameDay(new Date(event.startsAt), selected)));
-  const upcomingTasks = sortEvents(events.filter((event) => !event.completed && new Date(event.startsAt).getTime() >= now));
+  const selectedEvents = sortTasks(calendarEvents.filter((event) => isEventOnDay(event, selected)));
+  const upcomingTasks = sortTasks(events.filter((event) => !event.completed && new Date(eventTargetAt(event)).getTime() >= now));
   const filteredTasks = upcomingTasks.filter((event) => filter === "all" || event.category === filter);
   const nextEvent = upcomingTasks[0];
-  const dueSoon = upcomingTasks.filter((event) => differenceInCalendarDays(new Date(event.startsAt), new Date(now)) <= 7).length;
+  const dueSoon = upcomingTasks.filter((event) => differenceInCalendarDays(new Date(eventTargetAt(event)), new Date(now)) <= 7).length;
 
   async function signIn() {
     if (!supabase) return setStatus("Supabase 설정이 없어 로컬 모드입니다.");
@@ -246,9 +293,9 @@ export default function Home() {
   }
 
   function makePreview() {
-    const parsed = parseNaturalSchedules(naturalText);
+    const parsed = parseNaturalSchedules(naturalText, new Date(), quickAddDate ?? undefined);
     setPreview(parsed);
-    setStatus(parsed.length ? `${parsed.length}개 일정을 해석했습니다.` : "날짜를 찾지 못했습니다.");
+    setStatus(parsed.length ? `${parsed.length}개 일정을 해석했습니다.` : quickAddDate ? "일정 내용을 입력해주세요." : "날짜를 찾지 못했습니다.");
   }
 
   function updatePreview(index: number, patch: Partial<ParsedSchedule>) {
@@ -257,9 +304,22 @@ export default function Home() {
 
   async function persistSchedules(items: ParsedSchedule[]) {
     if (!items.length) return;
+    const invalidRange = items.find((item) => item.endsAt && new Date(item.endsAt).getTime() < new Date(item.startsAt).getTime());
+    if (invalidRange) return setStatus(`기간 종료는 시작보다 빠를 수 없습니다: ${invalidRange.title}`);
+
     if (supabase && userId) {
-      const rows = items.map((item) => ({ user_id: userId, title: item.title, starts_at: item.startsAt, notes: item.notes, reminder_minutes: item.reminderMinutes, category: item.category, completed: false, checklist: [] }));
-      const { data, error } = await supabase.from("events").insert(rows).select("id,title,starts_at,notes,reminder_minutes,category,completed,checklist");
+      const rows = items.map((item) => ({
+        user_id: userId,
+        title: item.title,
+        starts_at: item.startsAt,
+        ends_at: item.endsAt ?? null,
+        notes: item.notes,
+        reminder_minutes: item.reminderMinutes,
+        category: item.category,
+        completed: false,
+        checklist: [],
+      }));
+      const { data, error } = await supabase.from("events").insert(rows).select("id,title,starts_at,ends_at,notes,reminder_minutes,category,completed,checklist");
       if (error) return setStatus(`저장 실패: ${error.message}`);
       setEvents((current) => sortEvents([...current, ...(data ?? []).map((row) => rowToEvent(row as Record<string, unknown>))]));
     } else {
@@ -268,16 +328,22 @@ export default function Home() {
     }
     setNaturalText("");
     setPreview([]);
+    setQuickAddDate(null);
     setStatus(`${items.length}개 Task를 등록했습니다.`);
     setView("calendar");
   }
 
   async function patchEvent(item: ScheduleEvent, patch: EventPatch): Promise<boolean> {
     if (item.readOnly) return false;
+    if (patch.endsAt && new Date(patch.endsAt).getTime() < new Date(patch.startsAt ?? item.startsAt).getTime()) {
+      setStatus("기간 종료는 시작보다 빠를 수 없습니다.");
+      return false;
+    }
     if (supabase && userId) {
       const dbPatch: Record<string, unknown> = {};
       if (patch.title !== undefined) dbPatch.title = patch.title;
       if (patch.startsAt !== undefined) dbPatch.starts_at = patch.startsAt;
+      if (patch.endsAt !== undefined) dbPatch.ends_at = patch.endsAt;
       if (patch.category !== undefined) dbPatch.category = patch.category;
       if (patch.reminderMinutes !== undefined) dbPatch.reminder_minutes = patch.reminderMinutes;
       if (patch.notes !== undefined) dbPatch.notes = patch.notes;
@@ -304,8 +370,16 @@ export default function Home() {
 
   function openDate(day: Date) { setSelected(day); setSheetOpen(true); }
 
+  function openQuickAdd(date?: Date) {
+    setNaturalText("");
+    setPreview([]);
+    setQuickAddDate(date ?? null);
+    setSheetOpen(false);
+    setView("add");
+  }
+
   return <div className="app-shell">
-    <header className="topbar"><div className="topbar-inner"><div><div className="brand">MyScheduler</div><div className="top-summary">{nextEvent ? `${dday(nextEvent.startsAt, now)} · ${nextEvent.title}` : "예정된 일정이 없습니다"}</div></div><button className="icon-button" onClick={enableNotifications} aria-label="알림 켜기"><Bell size={20} /></button></div></header>
+    <header className="topbar"><div className="topbar-inner"><div><div className="brand">MyScheduler</div><div className="top-summary">{nextEvent ? `${eventDday(nextEvent, now)} · ${nextEvent.title}` : "예정된 일정이 없습니다"}</div></div><button className="icon-button" onClick={enableNotifications} aria-label="알림 켜기"><Bell size={20} /></button></div></header>
 
     <main className="main-content">
       {view === "calendar" && <>
@@ -313,35 +387,36 @@ export default function Home() {
         <section className="calendar-toolbar"><div className="month-title">{format(month, "yyyy년 M월", { locale: ko })}</div><div className="month-actions"><button onClick={() => setMonth(subMonths(month, 1))}><ChevronLeft size={18} /></button><button onClick={() => { const today = new Date(); setMonth(today); setSelected(today); }}>오늘</button><button onClick={() => setMonth(addMonths(month, 1))}><ChevronRight size={18} /></button></div></section>
         <div className="calendar-subtoolbar"><div className="legend">{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <span key={key}><i className={`dot dot-${key}`} />{label}</span>)}</div>{userId && <button className={`shared-toggle ${showShared ? "active" : ""}`} onClick={() => setShowShared((value) => !value)}>구독 일정 {showShared ? "포함" : "숨김"}</button>}</div>
         <section className="calendar-card"><div className="calendar-grid">{weekdays.map((day) => <div className="weekday" key={day}>{day}</div>)}{days.map((day) => {
-          const dayEvents = sortEvents(calendarEvents.filter((item) => isSameDay(new Date(item.startsAt), day)));
+          const dayEvents = sortEvents(calendarEvents.filter((item) => isEventOnDay(item, day)));
           return <button key={day.toISOString()} className={`day ${!isSameMonth(day, month) ? "muted" : ""} ${isSameDay(day, new Date(now)) ? "today" : ""} ${densityClass(dayEvents.length)}`} onClick={() => openDate(day)}>
             <div className="day-head"><span className="day-number">{format(day, "d")}</span>{dayEvents.length > 0 && <span className="day-load-badge">{dayEvents.length}건</span>}</div>
-            <div className="day-events">{dayEvents.slice(0, 2).map((item) => <div key={item.id} className={`calendar-event event-${item.category} ${item.completed ? "done" : ""} ${item.readOnly ? "shared-event" : ""}`}><span className="calendar-event-title">{item.title}</span>{item.ownerName && <span className="calendar-event-owner">{item.ownerName}</span>}<span className="calendar-event-time">{format(new Date(item.startsAt), "HH:mm")}</span></div>)}{dayEvents.length > 2 && <span className="more-events">+{dayEvents.length - 2}개 더 · 눌러서 전체 보기</span>}</div>
+            <div className="day-events">{dayEvents.slice(0, 2).map((item) => <div key={item.id} className={`calendar-event event-${item.category} ${item.completed ? "done" : ""} ${item.readOnly ? "shared-event" : ""} ${rangeSegmentClass(item, day)}`}><span className={`calendar-event-title ${showRangeTitle(item, day) ? "" : "range-title-hidden"}`}>{showRangeTitle(item, day) ? item.title : "·"}</span>{item.ownerName && showRangeTitle(item, day) && <span className="calendar-event-owner">{item.ownerName}</span>}{!isRangeEvent(item) && <span className="calendar-event-time">{format(new Date(item.startsAt), "HH:mm")}</span>}</div>)}{dayEvents.length > 2 && <span className="more-events">+{dayEvents.length - 2}개 더 · 눌러서 전체 보기</span>}</div>
           </button>;
         })}</div></section>
       </>}
 
       {view === "tasks" && <section className="tasks-page"><div className="page-heading"><div><span className="eyebrow">TASKS</span><h1>다가오는 일정</h1></div><span>{filteredTasks.length}개</span></div><div className="filter-strip"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>전체</button>{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <button className={filter === key ? "active" : ""} key={key} onClick={() => setFilter(key)}>{label}</button>)}</div><div className="task-list">{filteredTasks.length === 0 && <div className="empty-state">조건에 맞는 일정이 없습니다.</div>}{filteredTasks.map((item) => <TaskCard key={item.id} item={item} now={now} onPatch={patchEvent} onDelete={removeEvent} />)}</div></section>}
 
-      {view === "add" && <section className="add-page"><div className="page-heading"><div><span className="eyebrow">QUICK ADD</span><h1>말하듯 적어주세요</h1></div><Sparkles size={24} /></div><p className="page-description">한 줄에 하나씩 적으면 날짜·시간·종류·알림을 자동으로 정리합니다.</p><textarea className="natural-input" value={naturalText} onChange={(event) => setNaturalText(event.target.value)} rows={7} placeholder={"현대자동차 9월 14일 마감\nKBS 필기 발표 9월 14일\nKBS 시험 9월 30일 오전 9시 메모: 여권 챙기기"} /><button className="primary wide" onClick={makePreview}><Sparkles size={17} /> 일정 해석하기</button>{preview.length > 0 && <div className="preview-list">{preview.map((item, index) => <div className="preview-card" key={`${item.startsAt}-${index}`}><div className="preview-head"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><button onClick={() => setPreview((current) => current.filter((_, i) => i !== index))}><X size={16} /></button></div><input className="preview-title" value={item.title} onChange={(event) => updatePreview(index, { title: event.target.value })} /><input type="datetime-local" value={format(new Date(item.startsAt), "yyyy-MM-dd'T'HH:mm")} onChange={(event) => updatePreview(index, { startsAt: new Date(event.target.value).toISOString() })} /><div className="preview-row"><select value={item.category} onChange={(event) => updatePreview(index, { category: event.target.value as EventCategory })}>{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={item.reminderMinutes} onChange={(event) => updatePreview(index, { reminderMinutes: Number(event.target.value) })}><option value={10}>10분 전</option><option value={60}>1시간 전</option><option value={180}>3시간 전</option><option value={1440}>하루 전</option></select></div><textarea value={item.notes} onChange={(event) => updatePreview(index, { notes: event.target.value })} rows={2} placeholder="메모 / 준비물" /></div>)}<button className="primary wide" onClick={() => void persistSchedules(preview)}>{preview.length}개 일정 등록</button></div>}</section>}
+      {view === "add" && <section className="add-page"><div className="page-heading"><div><span className="eyebrow">QUICK ADD</span><h1>{quickAddDate ? `${format(quickAddDate, "M월 d일")} 일정 추가` : "말하듯 적어주세요"}</h1></div><Sparkles size={24} /></div>{quickAddDate ? <div className="quick-add-context"><div><CalendarDays size={17} /><span><strong>{format(quickAddDate, "M월 d일 EEEE", { locale: ko })}</strong> 기준으로 추가합니다. 날짜는 다시 적지 않아도 됩니다.</span></div><button onClick={() => setQuickAddDate(null)} aria-label="선택 날짜 해제"><X size={16} /></button></div> : <p className="page-description">한 줄에 하나씩 적으면 날짜·시간·기간·종류·알림을 자동으로 정리합니다.</p>}<textarea className="natural-input" value={naturalText} onChange={(event) => setNaturalText(event.target.value)} rows={7} placeholder={quickAddDate ? "현대자동차 서류 마감\nKBS 필기 결과 발표\n면접 오후 2시 메모: 신분증 챙기기" : "현대자동차 9월 10일부터 9월 14일까지 접수\nKBS 필기 발표 9월 14일\nKBS 시험 9월 30일 오전 9시"} /><button className="primary wide" onClick={makePreview}><Sparkles size={17} /> 일정 해석하기</button>{preview.length > 0 && <div className="preview-list">{preview.map((item, index) => <div className="preview-card" key={`${item.startsAt}-${index}`}><div className="preview-head"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><button onClick={() => setPreview((current) => current.filter((_, i) => i !== index))}><X size={16} /></button></div><input className="preview-title" value={item.title} onChange={(event) => updatePreview(index, { title: event.target.value })} /><div className="range-input-grid"><label><span>시작</span><input type="datetime-local" value={toDateTimeLocal(item.startsAt)} onChange={(event) => updatePreview(index, { startsAt: new Date(event.target.value).toISOString() })} /></label><label><span>종료 · 선택</span><input type="datetime-local" value={toDateTimeLocal(item.endsAt)} min={toDateTimeLocal(item.startsAt)} onChange={(event) => updatePreview(index, { endsAt: event.target.value ? new Date(event.target.value).toISOString() : null })} /></label></div><div className="preview-row"><select value={item.category} onChange={(event) => updatePreview(index, { category: event.target.value as EventCategory })}>{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={item.reminderMinutes} onChange={(event) => updatePreview(index, { reminderMinutes: Number(event.target.value) })}><option value={10}>10분 전</option><option value={60}>1시간 전</option><option value={180}>3시간 전</option><option value={1440}>하루 전</option></select></div>{item.endsAt && <div className="range-preview-note">기간 일정 · 알림은 종료 시각 기준</div>}<textarea value={item.notes} onChange={(event) => updatePreview(index, { notes: event.target.value })} rows={2} placeholder="메모 / 준비물" /></div>)}<button className="primary wide" onClick={() => void persistSchedules(preview)}>{preview.length}개 일정 등록</button></div>}</section>}
 
       {view === "settings" && <section className="settings-page"><div className="page-heading"><div><span className="eyebrow">SETTINGS</span><h1>설정</h1></div></div><div className="settings-card"><h2>계정</h2>{supabase ? userId ? <><p>Supabase 동기화가 연결되어 있습니다.</p><button className="secondary" onClick={() => supabase.auth.signOut()}>로그아웃</button></> : <div className="login-form"><input type="email" value={email} onChange={(event) => setEmail(event.target.value)} placeholder="이메일" /><input type="password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder="비밀번호" /><button className="primary" onClick={signIn}>로그인</button><button className="secondary" onClick={signUp}>회원가입</button></div> : <p>현재 로컬 모드입니다.</p>}</div><div className="settings-card"><h2>알림</h2><p>이 기기에서 백그라운드 Push 알림을 받습니다.</p><button className="secondary" onClick={enableNotifications}><Bell size={16} /> 알림 켜기</button></div><div className="settings-card"><h2>캘린더 공유 · 구독</h2><SharingPanel supabase={supabase} userId={userId} onChanged={() => setSharingVersion((value) => value + 1)} /></div><div className="settings-card"><h2>Android 홈 위젯</h2><p>다음 일정과 오늘 일정을 홈 화면에서 바로 확인하는 네이티브 위젯은 별도 Android 패키지로 추가할 예정입니다.</p></div></section>}
       <div className="status-toast">{status}</div>
     </main>
 
-    <nav className="bottom-nav" aria-label="주요 메뉴"><button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}><CalendarDays size={21} /><span>캘린더</span></button><button className={view === "tasks" ? "active" : ""} onClick={() => setView("tasks")}><ListTodo size={21} /><span>Task</span></button><button className={`add-nav ${view === "add" ? "active" : ""}`} onClick={() => setView("add")}><span className="add-icon"><Plus size={22} /></span><span>빠른추가</span></button><button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}><Settings size={21} /><span>설정</span></button></nav>
-    {sheetOpen && <DateSheet date={selected} items={selectedEvents} now={now} onClose={() => setSheetOpen(false)} onPatch={patchEvent} onDelete={removeEvent} onAdd={() => { setSheetOpen(false); setView("add"); }} />}
+    <nav className="bottom-nav" aria-label="주요 메뉴"><button className={view === "calendar" ? "active" : ""} onClick={() => setView("calendar")}><CalendarDays size={21} /><span>캘린더</span></button><button className={view === "tasks" ? "active" : ""} onClick={() => setView("tasks")}><ListTodo size={21} /><span>Task</span></button><button className={`add-nav ${view === "add" ? "active" : ""}`} onClick={() => openQuickAdd()}><span className="add-icon"><Plus size={22} /></span><span>빠른추가</span></button><button className={view === "settings" ? "active" : ""} onClick={() => setView("settings")}><Settings size={21} /><span>설정</span></button></nav>
+    {sheetOpen && <DateSheet date={selected} items={selectedEvents} now={now} onClose={() => setSheetOpen(false)} onPatch={patchEvent} onDelete={removeEvent} onAdd={() => openQuickAdd(selected)} />}
   </div>;
 }
 
 function DateSheet({ date, items, now, onClose, onPatch, onDelete, onAdd }: { date: Date; items: ScheduleEvent[]; now: number; onClose: () => void; onPatch: PatchEvent; onDelete: (id: string) => Promise<void>; onAdd: () => void; }) {
-  return <div className="sheet-backdrop" onMouseDown={onClose} role="presentation"><section className="bottom-sheet" onMouseDown={(event) => event.stopPropagation()} aria-modal="true" role="dialog"><div className="sheet-handle" /><div className="sheet-header"><div><span className="eyebrow">{format(date, "yyyy.MM.dd")}</span><h2>{format(date, "M월 d일 EEEE", { locale: ko })} · {items.length}건</h2></div><button className="icon-button" onClick={onClose} aria-label="닫기"><X size={20} /></button></div><div className="sheet-list">{items.length === 0 ? <div className="empty-state">등록된 일정이 없습니다.</div> : items.map((item) => <TaskCard key={item.id} item={item} now={now} onPatch={onPatch} onDelete={onDelete} />)}</div><button className="primary wide" onClick={onAdd}><Plus size={17} /> 이 날짜에 일정 추가</button></section></div>;
+  return <div className="sheet-backdrop" onMouseDown={onClose} role="presentation"><section className="bottom-sheet" onMouseDown={(event) => event.stopPropagation()} aria-modal="true" role="dialog"><div className="sheet-handle" /><div className="sheet-header"><div><span className="eyebrow">{format(date, "yyyy.MM.dd")}</span><h2>{format(date, "M월 d일 EEEE", { locale: ko })} · {items.length}건</h2></div><button className="icon-button" onClick={onClose} aria-label="닫기"><X size={20} /></button></div><div className="sheet-list">{items.length === 0 ? <div className="empty-state">등록된 일정이 없습니다.</div> : items.map((item) => <TaskCard key={item.id} item={item} now={now} onPatch={onPatch} onDelete={onDelete} />)}</div><button className="primary wide" onClick={onAdd}><Plus size={17} /> {format(date, "M월 d일")}에 일정 추가</button></section></div>;
 }
 
 function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: number; onPatch: PatchEvent; onDelete: (id: string) => Promise<void>; }) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState(item.title);
   const [startsAt, setStartsAt] = useState(toDateTimeLocal(item.startsAt));
+  const [endsAt, setEndsAt] = useState(toDateTimeLocal(item.endsAt));
   const [category, setCategory] = useState<EventCategory>(item.category);
   const [reminderMinutes, setReminderMinutes] = useState(item.reminderMinutes);
   const [notes, setNotes] = useState(item.notes);
@@ -352,13 +427,14 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
   useEffect(() => {
     setTitle(item.title);
     setStartsAt(toDateTimeLocal(item.startsAt));
+    setEndsAt(toDateTimeLocal(item.endsAt));
     setCategory(item.category);
     setReminderMinutes(item.reminderMinutes);
     setNotes(item.notes);
     setChecklist(item.checklist);
-  }, [item.title, item.startsAt, item.category, item.reminderMinutes, item.notes, item.checklist]);
+  }, [item.title, item.startsAt, item.endsAt, item.category, item.reminderMinutes, item.notes, item.checklist]);
 
-  if (item.readOnly) return <article className="task-card shared-task"><div className="task-card-top"><div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{dday(item.startsAt, now)}</span><span className="shared-owner-badge">{item.ownerName}</span></div></div><h3>{item.title}</h3><div className="task-time">{format(new Date(item.startsAt), "M월 d일 EEEE HH:mm", { locale: ko })}</div><div className="sharing-note">구독 캘린더 · 읽기 전용</div></article>;
+  if (item.readOnly) return <article className="task-card shared-task"><div className="task-card-top"><div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{eventDday(item, now)}</span><span className="shared-owner-badge">{item.ownerName}</span></div></div><h3>{item.title}</h3><div className="task-time">{formatSchedulePeriod(item)}</div>{item.endsAt && <div className="range-task-badge">기간 일정</div>}<div className="sharing-note">구독 캘린더 · 읽기 전용</div></article>;
 
   function addChecklist() {
     const text = newItem.trim();
@@ -375,6 +451,7 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
   function cancelEditing() {
     setTitle(item.title);
     setStartsAt(toDateTimeLocal(item.startsAt));
+    setEndsAt(toDateTimeLocal(item.endsAt));
     setCategory(item.category);
     setReminderMinutes(item.reminderMinutes);
     setNotes(item.notes);
@@ -386,14 +463,17 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
   async function saveEditing() {
     const normalizedTitle = title.trim();
     if (!normalizedTitle) return setEditError("일정명을 입력해주세요.");
-    if (!startsAt) return setEditError("날짜와 시간을 입력해주세요.");
-    const parsedDate = new Date(startsAt);
-    if (Number.isNaN(parsedDate.getTime())) return setEditError("날짜와 시간을 확인해주세요.");
-    if (!Number.isFinite(reminderMinutes) || reminderMinutes < 0) return setEditError("알림 시간은 0분 이상이어야 합니다.");
+    if (!startsAt) return setEditError("시작 날짜와 시간을 입력해주세요.");
+    const parsedStart = new Date(startsAt);
+    const parsedEnd = endsAt ? new Date(endsAt) : null;
+    if (Number.isNaN(parsedStart.getTime()) || (parsedEnd && Number.isNaN(parsedEnd.getTime()))) return setEditError("날짜와 시간을 확인해주세요.");
+    if (parsedEnd && parsedEnd.getTime() < parsedStart.getTime()) return setEditError("기간 종료는 시작보다 빠를 수 없습니다.");
+    if (!Number.isFinite(reminderMinutes) || reminderMinutes < 0 || reminderMinutes > 10080) return setEditError("알림 시간은 0~10080분 사이여야 합니다.");
 
     const saved = await onPatch(item, {
       title: normalizedTitle,
-      startsAt: parsedDate.toISOString(),
+      startsAt: parsedStart.toISOString(),
+      endsAt: parsedEnd?.toISOString() ?? null,
       category,
       reminderMinutes,
       notes,
@@ -407,7 +487,7 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
 
   return <article className={`task-card ${item.completed ? "completed" : ""} ${editing ? "editing" : ""}`}>
     <div className="task-card-top">
-      <div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{dday(item.startsAt, now)}</span></div>
+      <div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{eventDday(item, now)}</span>{item.endsAt && <span className="range-task-badge">기간</span>}</div>
       <div className="task-card-icon-actions">
         <button className={`task-icon-action complete ${item.completed ? "active" : ""}`} onClick={() => void onPatch(item, { completed: !item.completed })} aria-label={item.completed ? "완료 취소" : "완료 처리"} title={item.completed ? "완료 취소" : "완료 처리"}><CheckCircle2 size={18} /></button>
         <button className={`task-icon-action edit ${editing ? "active" : ""}`} onClick={editing ? cancelEditing : beginEditing} aria-label={editing ? "편집 취소" : "일정 수정"} title={editing ? "편집 취소" : "일정 수정"}><PencilLine size={17} /></button>
@@ -415,19 +495,19 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
     </div>
 
     {editing ? <div className="task-edit-panel">
-      <div className="task-edit-heading"><div><span>일정 편집</span><strong>핵심 정보와 준비사항을 한 번에 수정합니다.</strong></div></div>
+      <div className="task-edit-heading"><div><span>일정 편집</span><strong>단일 일정과 기간 일정을 같은 화면에서 수정합니다.</strong></div></div>
       <label className="task-field"><span>일정명</span><input className="preview-title" value={title} onChange={(event) => setTitle(event.target.value)} /></label>
-      <label className="task-field"><span>날짜 · 시간</span><input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label>
+      <div className="range-input-grid"><label className="task-field"><span>시작</span><input type="datetime-local" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} /></label><label className="task-field"><span>종료 · 비우면 단일 일정</span><input type="datetime-local" min={startsAt} value={endsAt} onChange={(event) => setEndsAt(event.target.value)} /></label></div>
       <div className="preview-row">
         <label className="task-field"><span>카테고리</span><select value={category} onChange={(event) => setCategory(event.target.value as EventCategory)}>{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-        <label className="task-field"><span>알림 · 몇 분 전</span><input type="number" min={0} step={10} value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))} /></label>
+        <label className="task-field"><span>알림 · 몇 분 전</span><input type="number" min={0} max={10080} step={10} value={reminderMinutes} onChange={(event) => setReminderMinutes(Number(event.target.value))} /></label>
       </div>
-      <div className="task-reminder-hint">일정 시작 기준 <strong>{reminderLabel(reminderMinutes)}</strong>에 알림</div>
+      <div className="task-reminder-hint">{endsAt ? "기간 종료" : "일정 시작"} 기준 <strong>{reminderLabel(reminderMinutes)}</strong>에 알림</div>
       {editError && <div className="task-edit-error">{editError}</div>}
     </div> : <div className="task-card-body">
       <h3>{item.title}</h3>
-      <div className="task-time">{format(new Date(item.startsAt), "M월 d일 EEEE HH:mm", { locale: ko })}</div>
-      <div className="task-time task-reminder-line">알림 · {reminderLabel(item.reminderMinutes)}</div>
+      <div className="task-time">{formatSchedulePeriod(item)}</div>
+      <div className="task-time task-reminder-line">알림 · {item.endsAt ? "종료 " : ""}{reminderLabel(item.reminderMinutes)}</div>
     </div>}
 
     <div className="task-detail-section"><label>메모</label><textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={2} placeholder="준비사항, 장소, 링크 등을 기록하세요." /></div>
