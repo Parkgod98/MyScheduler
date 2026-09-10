@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import webpush from "web-push";
 
 const REMINDER_LOOKBACK_MS = 2 * 60_000;
+const MAX_REMINDER_MINUTES = 10080;
 
 export async function POST(request: NextRequest) {
   const cronSecret = process.env.CRON_SECRET;
@@ -23,17 +24,20 @@ export async function POST(request: NextRequest) {
   const supabase = createClient(url, serviceRole, { auth: { persistSession: false } });
   const now = new Date();
   const reminderWindowStart = new Date(now.getTime() - REMINDER_LOOKBACK_MS);
+  const reminderWindowEnd = new Date(now.getTime() + MAX_REMINDER_MINUTES * 60_000);
 
   const { data: events, error } = await supabase
     .from("events")
-    .select("id,user_id,title,starts_at,reminder_minutes")
-    .gte("starts_at", now.toISOString())
-    .lte("starts_at", new Date(now.getTime() + 10080 * 60_000).toISOString());
+    .select("id,user_id,title,starts_at,ends_at,reminder_minutes,completed")
+    .eq("completed", false);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
   let sent = 0;
   for (const event of events ?? []) {
-    const remindAt = new Date(new Date(event.starts_at).getTime() - event.reminder_minutes * 60_000);
+    const targetAt = new Date(event.ends_at ?? event.starts_at);
+    if (targetAt < now || targetAt > reminderWindowEnd) continue;
+
+    const remindAt = new Date(targetAt.getTime() - event.reminder_minutes * 60_000);
     if (remindAt < reminderWindowStart || remindAt > now) continue;
 
     const { data: existing } = await supabase
@@ -54,7 +58,13 @@ export async function POST(request: NextRequest) {
       try {
         await webpush.sendNotification(
           { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-          JSON.stringify({ title: event.title, body: `${event.reminder_minutes}분 후 일정이 시작됩니다.`, url: "/" }),
+          JSON.stringify({
+            title: event.title,
+            body: event.ends_at
+              ? `${event.reminder_minutes}분 후 일정 기간이 종료됩니다.`
+              : `${event.reminder_minutes}분 후 일정이 시작됩니다.`,
+            url: "/",
+          }),
         );
         delivered = true;
         sent += 1;
