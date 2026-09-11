@@ -35,6 +35,7 @@ type EventPatch = Partial<Pick<ScheduleEvent, "title" | "startsAt" | "endsAt" | 
 type PatchEvent = (item: ScheduleEvent, patch: EventPatch) => Promise<boolean>;
 type ViewMode = "calendar" | "tasks" | "add" | "settings";
 type TaskFilter = "all" | EventCategory;
+type TaskStatusFilter = "active" | "completed" | "all";
 
 const STORAGE_KEY = "myscheduler.events.v4";
 const INITIAL_NOW = Date.now();
@@ -45,6 +46,11 @@ const categoryLabels: Record<EventCategory, string> = {
   result: "발표",
   interview: "면접",
   general: "일정",
+};
+const taskStatusLabels: Record<TaskStatusFilter, string> = {
+  active: "진행중",
+  completed: "완료",
+  all: "전체",
 };
 
 function urlBase64ToUint8Array(base64String: string) {
@@ -181,6 +187,7 @@ export default function Home() {
   const [quickAddDate, setQuickAddDate] = useState<Date | null>(null);
   const [view, setView] = useState<ViewMode>("calendar");
   const [filter, setFilter] = useState<TaskFilter>("all");
+  const [taskStatus, setTaskStatus] = useState<TaskStatusFilter>("active");
   const [sheetOpen, setSheetOpen] = useState(false);
   const [showShared, setShowShared] = useState(true);
   const [sharingVersion, setSharingVersion] = useState(0);
@@ -258,10 +265,25 @@ export default function Home() {
 
   const calendarEvents = showShared ? sortEvents([...events, ...sharedEvents]) : sortEvents(events);
   const selectedEvents = sortTasks(calendarEvents.filter((event) => isEventOnDay(event, selected)));
+  const overdueTasks = sortTasks(events.filter((event) => !event.completed && new Date(eventTargetAt(event)).getTime() < now)).reverse();
   const upcomingTasks = sortTasks(events.filter((event) => !event.completed && new Date(eventTargetAt(event)).getTime() >= now));
-  const filteredTasks = upcomingTasks.filter((event) => filter === "all" || event.category === filter);
+  const activeTasks = [...overdueTasks, ...upcomingTasks];
+  const completedTasks = sortTasks(events.filter((event) => event.completed)).reverse();
+  const taskBaseItems = taskStatus === "active" ? activeTasks : taskStatus === "completed" ? completedTasks : [...activeTasks, ...completedTasks];
+  const filteredTasks = taskBaseItems.filter((event) => filter === "all" || event.category === filter);
+  const categoryCounts = Object.fromEntries(
+    (Object.keys(categoryLabels) as EventCategory[]).map((category) => [category, taskBaseItems.filter((event) => event.category === category).length]),
+  ) as Record<EventCategory, number>;
   const nextEvent = upcomingTasks[0];
   const dueSoon = upcomingTasks.filter((event) => differenceInCalendarDays(new Date(eventTargetAt(event)), new Date(now)) <= 7).length;
+  const taskHeading = taskStatus === "active" ? "진행중 Task" : taskStatus === "completed" ? "완료한 Task" : "전체 Task";
+  const taskHint = taskStatus === "active"
+    ? overdueTasks.length > 0
+      ? `기한이 지난 미완료 ${overdueTasks.length}개도 완료 처리 전까지 유지됩니다.`
+      : "완료 처리 전까지 모든 Task가 이 목록에 유지됩니다."
+    : taskStatus === "completed"
+      ? "완료 처리한 Task를 최근 일정 순으로 다시 확인할 수 있습니다."
+      : "진행중 Task와 완료한 Task를 한 번에 확인합니다.";
 
   async function signIn() {
     if (!supabase) return setStatus("Supabase 설정이 없어 로컬 모드입니다.");
@@ -395,7 +417,21 @@ export default function Home() {
         })}</div></section>
       </>}
 
-      {view === "tasks" && <section className="tasks-page"><div className="page-heading"><div><span className="eyebrow">TASKS</span><h1>다가오는 일정</h1></div><span>{filteredTasks.length}개</span></div><div className="filter-strip"><button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}>전체</button>{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <button className={filter === key ? "active" : ""} key={key} onClick={() => setFilter(key)}>{label}</button>)}</div><div className="task-list">{filteredTasks.length === 0 && <div className="empty-state">조건에 맞는 일정이 없습니다.</div>}{filteredTasks.map((item) => <TaskCard key={item.id} item={item} now={now} onPatch={patchEvent} onDelete={removeEvent} />)}</div></section>}
+      {view === "tasks" && <section className="tasks-page">
+        <div className="page-heading"><div><span className="eyebrow">TASKS</span><h1>{taskHeading}</h1></div><span>{filteredTasks.length}개</span></div>
+        <div className="task-status-strip" role="tablist" aria-label="Task 상태">
+          {(Object.entries(taskStatusLabels) as [TaskStatusFilter, string][]).map(([key, label]) => {
+            const count = key === "active" ? activeTasks.length : key === "completed" ? completedTasks.length : events.length;
+            return <button key={key} role="tab" aria-selected={taskStatus === key} className={taskStatus === key ? "active" : ""} onClick={() => setTaskStatus(key)}><span>{label}</span><strong>{count}</strong></button>;
+          })}
+        </div>
+        <p className="task-history-hint">{taskHint}</p>
+        <div className="filter-strip task-category-strip">
+          <button className={filter === "all" ? "active" : ""} onClick={() => setFilter("all")}><span>전체</span><strong>{taskBaseItems.length}</strong></button>
+          {(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <button className={filter === key ? "active" : ""} key={key} onClick={() => setFilter(key)}><span>{label}</span><strong>{categoryCounts[key]}</strong></button>)}
+        </div>
+        <div className="task-list">{filteredTasks.length === 0 && <div className="empty-state">{taskStatus === "active" ? "진행 중인" : taskStatus === "completed" ? "완료한" : "등록된"}{filter === "all" ? " Task가 없습니다." : ` ${categoryLabels[filter]} Task가 없습니다.`}</div>}{filteredTasks.map((item) => <TaskCard key={item.id} item={item} now={now} onPatch={patchEvent} onDelete={removeEvent} />)}</div>
+      </section>}
 
       {view === "add" && <section className="add-page"><div className="page-heading"><div><span className="eyebrow">QUICK ADD</span><h1>{quickAddDate ? `${format(quickAddDate, "M월 d일")} 일정 추가` : "말하듯 적어주세요"}</h1></div><Sparkles size={24} /></div>{quickAddDate ? <div className="quick-add-context"><div><CalendarDays size={17} /><span><strong>{format(quickAddDate, "M월 d일 EEEE", { locale: ko })}</strong> 기준으로 추가합니다. 날짜는 다시 적지 않아도 됩니다.</span></div><button onClick={() => setQuickAddDate(null)} aria-label="선택 날짜 해제"><X size={16} /></button></div> : <p className="page-description">한 줄에 하나씩 적으면 날짜·시간·기간·종류·알림을 자동으로 정리합니다.</p>}<textarea className="natural-input" value={naturalText} onChange={(event) => setNaturalText(event.target.value)} rows={7} placeholder={quickAddDate ? "현대자동차 서류 마감\nKBS 필기 결과 발표\n면접 오후 2시 메모: 신분증 챙기기" : "현대자동차 9월 10일부터 9월 14일까지 접수\nKBS 필기 발표 9월 14일\nKBS 시험 9월 30일 오전 9시"} /><button className="primary wide" onClick={makePreview}><Sparkles size={17} /> 일정 해석하기</button>{preview.length > 0 && <div className="preview-list">{preview.map((item, index) => <div className="preview-card" key={`${item.startsAt}-${index}`}><div className="preview-head"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><button onClick={() => setPreview((current) => current.filter((_, i) => i !== index))}><X size={16} /></button></div><input className="preview-title" value={item.title} onChange={(event) => updatePreview(index, { title: event.target.value })} /><div className="range-input-grid"><label><span>시작</span><input type="datetime-local" value={toDateTimeLocal(item.startsAt)} onChange={(event) => updatePreview(index, { startsAt: new Date(event.target.value).toISOString() })} /></label><label><span>종료 · 선택</span><input type="datetime-local" value={toDateTimeLocal(item.endsAt)} min={toDateTimeLocal(item.startsAt)} onChange={(event) => updatePreview(index, { endsAt: event.target.value ? new Date(event.target.value).toISOString() : null })} /></label></div><div className="preview-row"><select value={item.category} onChange={(event) => updatePreview(index, { category: event.target.value as EventCategory })}>{(Object.entries(categoryLabels) as [EventCategory, string][]).map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select><select value={item.reminderMinutes} onChange={(event) => updatePreview(index, { reminderMinutes: Number(event.target.value) })}><option value={10}>10분 전</option><option value={60}>1시간 전</option><option value={180}>3시간 전</option><option value={1440}>하루 전</option></select></div>{item.endsAt && <div className="range-preview-note">기간 일정 · 알림은 종료 시각 기준</div>}<textarea value={item.notes} onChange={(event) => updatePreview(index, { notes: event.target.value })} rows={2} placeholder="메모 / 준비물" /></div>)}<button className="primary wide" onClick={() => void persistSchedules(preview)}>{preview.length}개 일정 등록</button></div>}</section>}
 
@@ -423,6 +459,7 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
   const [checklist, setChecklist] = useState<ChecklistItem[]>(item.checklist);
   const [newItem, setNewItem] = useState("");
   const [editError, setEditError] = useState("");
+  const overdue = !item.completed && new Date(eventTargetAt(item)).getTime() < now;
 
   useEffect(() => {
     setTitle(item.title);
@@ -487,7 +524,7 @@ function TaskCard({ item, now, onPatch, onDelete }: { item: ScheduleEvent; now: 
 
   return <article className={`task-card ${item.completed ? "completed" : ""} ${editing ? "editing" : ""}`}>
     <div className="task-card-top">
-      <div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{eventDday(item, now)}</span>{item.endsAt && <span className="range-task-badge">기간</span>}</div>
+      <div className="task-tags"><span className={`category-badge badge-${item.category}`}>{categoryLabels[item.category]}</span><span className="dday">{eventDday(item, now)}</span>{item.endsAt && <span className="range-task-badge">기간</span>}{item.completed && <span className="task-state-badge completed">완료</span>}{overdue && <span className="task-state-badge overdue">기한 지남</span>}</div>
       <div className="task-card-icon-actions">
         <button className={`task-icon-action complete ${item.completed ? "active" : ""}`} onClick={() => void onPatch(item, { completed: !item.completed })} aria-label={item.completed ? "완료 취소" : "완료 처리"} title={item.completed ? "완료 취소" : "완료 처리"}><CheckCircle2 size={18} /></button>
         <button className={`task-icon-action edit ${editing ? "active" : ""}`} onClick={editing ? cancelEditing : beginEditing} aria-label={editing ? "편집 취소" : "일정 수정"} title={editing ? "편집 취소" : "일정 수정"}><PencilLine size={17} /></button>
