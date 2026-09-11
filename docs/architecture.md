@@ -43,6 +43,17 @@ PC / Android PWA / iPhone Safari Home Screen PWA
 - Task 정렬, D-day, reminder 대상 시각은 `coalesce(ends_at, starts_at)`을 사용한다. 즉 기간 일정은 종료 시각 기준으로 관리한다.
 - 구독 캘린더 RPC도 `starts_at < range_end AND coalesce(ends_at, starts_at) >= range_start` 조건으로 기간이 조회 범위와 겹치면 반환한다.
 
+## Task state/history model
+Task 이력은 별도 테이블을 만들지 않고 기존 `events.completed` boolean을 그대로 사용한다.
+
+- `active`: `completed = false`인 모든 Task를 조회한다. 기한이 지났어도 완료 전이면 목록에서 제거하지 않는다.
+- `completed`: `completed = true`인 Task를 조회한다.
+- `all`: active/completed를 모두 조회한다.
+- UI에서는 상태 필터 뒤에 `deadline | exam | result | interview | general` 카테고리 필터를 추가 적용한다.
+- 완료 Task도 기존 event row를 유지하므로 수정과 완료 취소가 가능하다.
+- 상단 다음 일정/7일 내 일정 계산은 기존 의미를 유지하기 위해 미래의 미완료 Task만 사용한다.
+- 상태 필터는 client-side projection이며 schema/migration 변경이 없다.
+
 ## Contextual quick add
 날짜 Bottom Sheet에서 빠른추가로 이동할 때 선택 날짜를 client state로 전달한다. 자연어 문장에 명시적 날짜가 없으면 해당 날짜를 기본 날짜로 사용하고, 명시적 날짜가 있으면 사용자가 입력한 날짜가 우선한다. 일반 하단 탭의 빠른추가는 날짜 컨텍스트 없이 기존 방식으로 동작한다.
 
